@@ -1,10 +1,11 @@
+import random
 import re
 import string
 import tkinter as tk
 import sqlite3
 from tkinter import ttk
 import pandas as pd
-from typing import Literal, List, Any
+from typing import Literal, List, Any, Tuple
 
 from screeninfo import get_monitors
 
@@ -30,7 +31,7 @@ class EntryFrame(tk.Frame):
                  master: tk.Misc | None,
                  *,
                  label: str,
-                 width: int = 60,
+                 width: int = 100,
                  borderwidth: str | float = 0,
                  relief: Literal["raised", "sunken", "flat", "ridge", "solid", "groove"] = "flat"):
         super(EntryFrame, self).__init__(master, borderwidth=borderwidth, relief=relief)
@@ -59,12 +60,12 @@ class Bayes:
 
         self.all_train_vectors = train  # All train vectors
         self.unique_values = dict()  # Unique values for each attribute except for decision attribute
-        for i in range(self.data_size):
+        for i in range(self.data_size+1):
             self.unique_values[i] = set()
         self.train_vectors = dict()  # All train vectors separated by decision attributes
 
         for v in train:
-            for i in range(self.data_size):
+            for i in range(self.data_size+1):
                 self.unique_values[i].add(v[i])
             if v[-1] not in self.train_vectors.keys():
                 self.train_vectors[v[-1]] = []
@@ -85,7 +86,7 @@ class Bayes:
             class_size = len(self.train_vectors[_class])
             class_prob = class_size / len(self.all_train_vectors)
             for i in range(self.data_size):
-                atr_count = len(list(filter(lambda x: str(x) == str(to_classify[i]), self.train_vectors[_class])))
+                atr_count = len(list(filter(lambda x: str(x[i]) == str(to_classify[i]), self.train_vectors[_class])))
                 if atr_count == 0:  # smoothening
                     class_prob *= (atr_count + 1) / (class_size + len(self.unique_values[i]))
                 else:
@@ -96,6 +97,39 @@ class Bayes:
 
     def classify_all(self, to_classify: list[list]) -> list:
         return [self.classify(a) for a in to_classify]
+
+    def test(self, test: list[list]) -> tuple[int, float, dict]:
+        for v in test:
+            if len(v) != self.data_size + 1:
+                raise ValueError("Incorrect test vector size.")
+        # dict of dicts of zeros with size class_num*class_num
+        # Rows are real classes, columns are classes counted by naive Bayes
+        # Example:
+        #   a b c
+        # a 0 0 0
+        # b 0 0 0
+        # c 0 0 0
+        confusion_matrix = {c: {c: 0 for c in self.train_vectors.keys()} for c in self.train_vectors.keys()}
+        answers = {repr(v): self.classify(v) for v in test}
+        for vector, _class in answers.items():
+            try:
+                confusion_matrix[eval(vector)[-1]][_class] += 1
+            except KeyError:
+                print(f'Unknown class "{_class}" found')
+
+        correct = 0
+        for c in self.train_vectors.keys():
+            correct += confusion_matrix[c][c]
+        correct_percent = correct / len(test)
+        return correct, correct_percent, confusion_matrix
+
+    def __repr__(self):
+        return f"Bayes({self.all_train_vectors})"
+
+    def save(self, file_name: str):
+        file = open(file_name, 'w')
+        file.write(repr(self))
+        file.close()
 
 
 # TODO:
@@ -112,11 +146,17 @@ class Root(tk.Tk):
         data_enter_window = tk.Toplevel(self)
         data_enter_window.title("Data enter")
 
-        url_entry = EntryFrame(data_enter_window, label="URL:", width=100)
+        url_entry = EntryFrame(data_enter_window, label="URL:")
         url_entry.pack()
 
-        headers_entry = EntryFrame(data_enter_window, label="Columns", width=100)
+        headers_entry = EntryFrame(data_enter_window, label="Columns")
         headers_entry.pack()
+
+        train_row_number_entry = EntryFrame(data_enter_window, label="Train row number")
+        train_row_number_entry.pack()
+
+        test_row_number_entry = EntryFrame(data_enter_window, label="Test row number")
+        test_row_number_entry.pack()
 
         info = tk.Text(data_enter_window)
         info.insert(tk.END, '''Columns must be separated with punctuation character.
@@ -129,6 +169,11 @@ Default data are used when url is empty.''')
         info.pack(anchor="e", padx=5, pady=5)
         self.headers = []
         self.data = pd.DataFrame()
+
+        # TODO: start window is self, but only with 2 buttons:
+        #  load and crete new.
+        #  create new works exactly the same as now.
+        #  load require file path and.
 
         def show_on_table():
             tree_view_window = tk.Toplevel(self)
@@ -154,6 +199,20 @@ Default data are used when url is empty.''')
 
         def load_data():
             url = url_entry.get()
+            train_row_number = train_row_number_entry.get()
+            test_row_number = test_row_number_entry.get()
+
+            if train_row_number == "":
+                train_row_number = 50
+            else:
+                train_row_number = int(train_row_number)
+
+            if test_row_number == "":
+                # 25% of all data read
+                test_row_number = int(0.33 * train_row_number)
+            else:
+                test_row_number = int(test_row_number)
+
             if url == "":
                 url = "car.data"
                 self.headers = [line.removesuffix("\n") for line in open("car.headers", mode='r')]
@@ -172,8 +231,27 @@ Default data are used when url is empty.''')
                 data_enter_window.destroy()
                 column_rename = {i: self.headers[i] for i in self.data.columns.to_list()}
 
-                # TODO: train and test data separation, probably shuffle and take 75-85%
-                self.model = Bayes([list(v) for v in self.data.values])
+                train_vectors = []
+                test_vectors = []
+                all_vectors = [list(v) for v in self.data.values]
+                random.shuffle(all_vectors)
+                all_vectors = all_vectors[:train_row_number + test_row_number]
+                for i in range(len(all_vectors)):
+                    if i < train_row_number:
+                        train_vectors.append(all_vectors[i])
+                    else:
+                        test_vectors.append(all_vectors[i])
+                self.model = Bayes(train_vectors)
+                self.model.save(".\\model.txt")
+
+                test_results = self.model.test(test_vectors)
+                print("Test results:\n"
+                      f"\tcorrect: {test_results[0]}({int(test_results[1]*100)}%)\n"
+                      "Confusion matrix:")
+
+                for k in test_results[2].keys():
+                    print(*[f" {v}" for v in test_results[2][k].values()], sep="\t |")
+                    print("---------"*len(test_results))
 
                 self.geometry(f"{screen_width // 2}x{int(screen_height / 1.6)}")
                 self.data = self.data.rename(columns=column_rename)
@@ -202,14 +280,71 @@ Default data are used when url is empty.''')
                     classify_button = tk.Button(vector_enter_window, text="Classify", command=classify)
                     classify_button.pack(side="left")
 
-                    def show_enter_info():  # TODO: show info in new window with only text.
-                        print("Not implemented yet. Not important.")
-
-                    info_button = tk.Button(vector_enter_window, text="Info", command=show_enter_info)
-                    info_button.pack(side="right")
-
                 self.classify_new_button = tk.Button(self, text="Classify new", command=enter_to_classify)
                 self.classify_new_button.pack(side="right")
+
+                def open_retrain_window():
+                    retrain_window = tk.Toplevel(self)
+                    retrain_window.title("Retrain")
+                    nonlocal train_row_number_entry
+                    nonlocal test_row_number_entry
+                    nonlocal train_row_number
+                    nonlocal test_row_number
+
+                    train_row_number_entry = EntryFrame(retrain_window, label="New train row number")
+                    train_row_number_entry.pack()
+
+                    test_row_number_entry = EntryFrame(retrain_window, label="New test row number")
+                    test_row_number_entry.pack()
+
+                    def retrain():
+                        nonlocal train_row_number
+                        nonlocal test_row_number
+                        nonlocal train_vectors
+                        nonlocal test_vectors
+                        nonlocal all_vectors
+                        nonlocal test_results
+
+                        train_row_number = train_row_number_entry.get()
+                        test_row_number = test_row_number_entry.get()
+
+                        if train_row_number == "":
+                            train_row_number = 50
+                        else:
+                            train_row_number = int(train_row_number)
+
+                        if test_row_number == "":
+                            # 25% of all data read
+                            test_row_number = int(0.33 * train_row_number)
+                        else:
+                            test_row_number = int(test_row_number)
+
+                        train_vectors = []
+                        test_vectors = []
+                        all_vectors = [list(v) for v in self.data.values]
+                        random.shuffle(all_vectors)
+                        all_vectors = all_vectors[:train_row_number + test_row_number]
+                        for i in range(len(all_vectors)):
+                            if i < train_row_number:
+                                train_vectors.append(all_vectors[i])
+                            else:
+                                test_vectors.append(all_vectors[i])
+                        self.model = Bayes(train_vectors)
+                        test_results = self.model.test(test_vectors)
+                        print("Test results:\n"
+                              f"\tcorrect: {test_results[0]}({int(test_results[1] * 100)}%)\n"
+                              "Confusion matrix:")
+                        for _k in test_results[2].keys():
+                            print(*[f" {v}" for v in test_results[2][_k].values()], sep="\t |")
+                            print("---------" * len(test_results))
+
+                            retrain_window.destroy()
+
+                    retrain_button = tk.Button(retrain_window, text="Retrain", command=retrain)
+                    retrain_button.pack()
+
+                self.open_retrain_window_button = tk.Button(self, text="Retrain", command=open_retrain_window)
+                self.open_retrain_window_button.pack(side="right")
 
         load_button = tk.Button(data_enter_window, text="Load", command=load_data, width=20)
         load_button.pack(anchor='w', pady=10, padx=10)
