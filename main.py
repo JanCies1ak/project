@@ -57,12 +57,12 @@ class Bayes:
 
         self.all_train_vectors = train  # All train vectors
         self.unique_values = dict()  # Unique values for each attribute except for decision attribute
-        for i in range(self.data_size+1):
+        for i in range(self.data_size + 1):
             self.unique_values[i] = set()
         self.train_vectors = dict()  # All train vectors separated by decision attributes
 
         for v in train:
-            for i in range(self.data_size+1):
+            for i in range(self.data_size + 1):
                 self.unique_values[i].add(v[i])
             if v[-1] not in self.train_vectors.keys():
                 self.train_vectors[v[-1]] = []
@@ -134,6 +134,7 @@ class Root(tk.Tk):
     def save(self, file_name: str = "model.txt"):
         file = open(file_name, "w")
         file.write(repr(self.model))
+        file.write("\n")
         file.write(repr(self.headers))
         file.write("\n")
         file.close()
@@ -162,7 +163,12 @@ class Root(tk.Tk):
                 if file_name == "":
                     file_name = "model.txt"
 
-                file = open(file_name, 'r')
+                try:
+                    file = open(file_name, 'r')
+                except FileNotFoundError:
+                    print("Fine not exist")
+                    load_window.destroy()
+                    return
                 self.model = eval(file.readline())
                 self.train_vectors = self.model.all_train_vectors
                 self.headers = eval(file.readline())
@@ -332,7 +338,6 @@ Default data are used when url is empty.''')
             self.show_on_canvas_button = tk.Button(self, text="Show canvas", command=show_on_canvas)
             self.show_on_canvas_button.pack(side="left", padx=5, pady=5)
 
-            self.geometry(f"{screen_width // 2}x{int(screen_height / 1.6)}")
             self.classify_new_button = tk.Button(self, text="Classify new", command=enter_to_classify)
             self.classify_new_button.pack(side="right", padx=5, pady=5)
 
