@@ -1,47 +1,12 @@
 import random
 import re
-import string
 import tkinter as tk
 import sqlite3
 from tkinter import ttk
 import pandas as pd
-from typing import Literal, List, Any, Tuple
+from typing import Literal, Any
 
 from screeninfo import get_monitors
-
-
-# TODO: database controller
-class DBController:
-    def __init__(self, database: str, columns: str):
-        self.database = database
-
-
-class EntryFrame(tk.Frame):
-    """
-    Frame with label and entry.
-    Used to set label to the left of entry and to reduce code length.
-    """
-    entry = None
-    label = None
-
-    def __init__(self,
-                 master: tk.Misc | None,
-                 *,
-                 label: str,
-                 width: int = 100,
-                 borderwidth: str | float = 0,
-                 relief: Literal["raised", "sunken", "flat", "ridge", "solid", "groove"] = "flat"):
-        super(EntryFrame, self).__init__(master, borderwidth=borderwidth, relief=relief)
-        self.entry = tk.Entry(self, width=width)
-        self.label = tk.Label(self, text=label)
-
-    def pack(self):
-        self.label.pack(side="left", padx=5, pady=5)
-        self.entry.pack(side="right", padx=5, pady=5, before=self.label)
-        super(EntryFrame, self).pack(anchor="e")
-
-    def get(self):
-        return self.entry.get()
 
 
 class Bayes:
@@ -129,6 +94,76 @@ class Bayes:
         file.close()
 
 
+class DBController:
+
+    def connect(self) -> sqlite3.dbapi2.Connection:
+        return sqlite3.connect(self.database)
+
+    def __init__(self, database: str, headers: list[str]):
+        self.database = database
+        self.headers = headers
+
+        query = "CREATE TABLE IF NOT EXISTS model ( id INTEGER PRIMARY KEY"
+        for c in headers:
+            query += f",\n{c} TEXT"
+        query += ")"
+        connection = self.connect()
+        connection.execute(query)
+        connection.close()
+
+    def save(self, model: Bayes):
+        query = "INSERT INTO model ("
+        for h in self.headers[:-1]:
+            query += f"{h}, "
+        query += f"{self.headers[-1]}) VALUES ("
+        for i in range(len(self.headers) - 1):
+            query += "?, "
+        query += "?)"
+        connection = self.connect()
+        for v in model.all_train_vectors:
+            connection.execute(query, v)
+        connection.close()
+
+    def read(self) -> list[list[str]]:
+        query = "SELECT * FROM model"
+        connection = self.connect()
+        res = connection.execute(query)
+        vecs = res.fetchall()
+        connection.close()
+        vectors = []
+        for v in vecs:
+            vectors.append(list(v[1:]))
+        return vectors
+
+
+class EntryFrame(tk.Frame):
+    """
+    Frame with label and entry.
+    Used to set label to the left of entry and to reduce code length.
+    """
+    entry = None
+    label = None
+
+    def __init__(self,
+                 master: tk.Misc | None,
+                 *,
+                 label: str,
+                 width: int = 100,
+                 borderwidth: str | float = 0,
+                 relief: Literal["raised", "sunken", "flat", "ridge", "solid", "groove"] = "flat"):
+        super(EntryFrame, self).__init__(master, borderwidth=borderwidth, relief=relief)
+        self.entry = tk.Entry(self, width=width)
+        self.label = tk.Label(self, text=label)
+
+    def pack(self):
+        self.label.pack(side="left", padx=5, pady=5)
+        self.entry.pack(side="right", padx=5, pady=5, before=self.label)
+        super(EntryFrame, self).pack(anchor="e")
+
+    def get(self):
+        return self.entry.get()
+
+
 class Root(tk.Tk):
 
     def save(self, file_name: str = "model.txt"):
@@ -145,7 +180,6 @@ class Root(tk.Tk):
         self.headers = []
         self.title("Classificator")
         screen_width = get_monitors()[0].width
-        screen_height = get_monitors()[0].height
 
         load_from_file_button = tk.Button(self, text="Load")
         create_new_model_button = tk.Button(self, text="Create new")
@@ -292,6 +326,31 @@ Default data are used when url is empty.''')
 
                 classify_button = tk.Button(vector_enter_window, text="Classify", command=classify)
                 classify_button.pack(side="left")
+
+            def add_new_train_vector():
+                vector_enter_window = tk.Toplevel(self)
+                vector_enter_window.title("Vector enter")
+
+                entry_frames = []
+                for _h in self.headers:
+                    frame = EntryFrame(vector_enter_window, label=_h)
+                    entry_frames.append(frame)
+                    frame.pack()
+
+                def add_new():
+                    vec = [ef.get() for ef in entry_frames]
+                    vector_enter_window.destroy()
+                    if vec not in self.model.all_train_vectors:
+                        self.model.train_vectors[vec[-1]].append(vec[:-1])
+                        self.model.all_train_vectors.append(vec)
+                    else:
+                        print("Vector already in train vectors")
+
+                add_new_button = tk.Button(vector_enter_window, text="Add new", command=add_new)
+                add_new_button.pack(side="left", pady=5, padx=5)
+
+            self.add_new_vector_button = tk.Button(self, text="Add new", command=add_new_train_vector)
+            self.add_new_vector_button.pack(side="left", padx=5, pady=5)
 
             def save_model():
                 save_window = tk.Toplevel(self)
