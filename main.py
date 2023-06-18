@@ -128,7 +128,7 @@ class Bayes:
 
     def save(self, file_name: str):
         file = open(file_name, 'w')
-        file.write(repr(self))
+        file.write(repr(self) + "\n")
         file.close()
 
 
