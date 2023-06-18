@@ -9,7 +9,6 @@ from typing import Literal, List, Any, Tuple
 
 from screeninfo import get_monitors
 
-
 # TODO: documentation
 
 
@@ -126,7 +125,7 @@ class Bayes:
     def __repr__(self):
         return f"Bayes({self.all_train_vectors})"
 
-    def save(self, file_name: str):
+    def save(self, file_name: str = "model.txt"):
         file = open(file_name, 'w')
         file.write(repr(self) + "\n")
         file.close()
@@ -137,36 +136,253 @@ class Bayes:
 #  rebuild button (?)
 class Root(tk.Tk):
 
+    def save(self, file_name: str = "model.txt"):
+        file = open(file_name, "w")
+        file.write(repr(self.model))
+        file.write(repr(self.headers))
+        file.write("\n")
+        file.close()
+
     def __init__(self):
         super().__init__()
         self.title("Classificator")
         screen_width = get_monitors()[0].width
         screen_height = get_monitors()[0].height
 
-        data_enter_window = tk.Toplevel(self)
-        data_enter_window.title("Data enter")
+        load_from_file_button = tk.Button(self, text="Load")
+        create_new_model_button = tk.Button(self, text="Create new")
 
-        url_entry = EntryFrame(data_enter_window, label="URL:")
-        url_entry.pack()
+        def load_from_file():
+            load_window = tk.Toplevel(self)
+            load_window.title("Load")
 
-        headers_entry = EntryFrame(data_enter_window, label="Columns")
-        headers_entry.pack()
+            file_name_entry = EntryFrame(load_window, label="File name")
+            file_name_entry.pack()
 
-        train_row_number_entry = EntryFrame(data_enter_window, label="Train row number")
-        train_row_number_entry.pack()
+            def load():
+                file_name = file_name_entry.get()
 
-        test_row_number_entry = EntryFrame(data_enter_window, label="Test row number")
-        test_row_number_entry.pack()
+                if file_name == "":
+                    file_name = "model.txt"
 
-        info = tk.Text(data_enter_window)
-        info.insert(tk.END, '''Columns must be separated with punctuation character.
+                file = open(file_name, 'r')
+                self.model = eval(file.readline())
+                self.train_vectors = self.model.all_train_vectors
+                self.headers = eval(file.readline())
+                load_window.destroy()
+                load_from_file_button.destroy()
+                create_new_model_button.destroy()
+
+                def enter_to_classify():
+                    vector_enter_window = tk.Toplevel(self)
+                    vector_enter_window.title("Vector enter")
+
+                    entry_frames = []
+                    for _h in self.headers[:-1]:
+                        frame = EntryFrame(vector_enter_window, label=_h)
+                        entry_frames.append(frame)
+                        frame.pack()
+
+                    def classify():
+                        vec = [ef.get() for ef in entry_frames]
+                        vector_enter_window.destroy()
+                        print(f"Vector: {vec}\nAnswer: {self.model.classify(vec)}")
+
+                    classify_button = tk.Button(vector_enter_window, text="Classify", command=classify)
+                    classify_button.pack(side="left")
+
+                def save_model():
+                    save_window = tk.Toplevel(self)
+                    save_window.title("Save")
+
+                    _file_name_entry = EntryFrame(save_window, label="File name")
+                    _file_name_entry.pack()
+
+                    def save():
+                        _file_name = _file_name_entry.get()
+                        if _file_name == "":
+                            _file_name = "model.txt"
+                        self.save(_file_name)
+                        save_window.destroy()
+
+                    save_button = tk.Button(save_window, text="Save", command=save)
+                    save_button.pack(pady=5, padx=5)
+
+                self.geometry(f"{screen_width // 2}x{int(screen_height / 1.6)}")
+                self.classify_new_button = tk.Button(self, text="Classify new", command=enter_to_classify)
+                self.classify_new_button.pack(side="right", padx=5, pady=5)
+
+                self.save_button = tk.Button(self, text="Save", command=save_model)
+                self.save_button.pack(side="right", padx=5, pady=5)
+
+            load_model_button = tk.Button(load_window, text="Load")
+            load_model_button.config(command=load)
+            load_model_button.pack()
+
+        def create_new_model():
+            new_model_enter_window = tk.Toplevel(self)
+            new_model_enter_window.title("New model")
+
+            url_entry = EntryFrame(new_model_enter_window, label="URL")
+            url_entry.pack()
+
+            headers_entry = EntryFrame(new_model_enter_window, label="Columns")
+            headers_entry.pack()
+
+            train_row_number_entry = EntryFrame(new_model_enter_window, label="Train row number")
+            train_row_number_entry.pack()
+
+            test_row_number_entry = EntryFrame(new_model_enter_window, label="Test row number")
+            test_row_number_entry.pack()
+
+            info = tk.Text(new_model_enter_window)
+            info.insert(tk.END, '''Columns must be separated with punctuation character.
 Column count must be the same as number of attributes.
 Columns must be unique.
 First attribute is a decision attribute.
 Default data are car.data for url and lines from car.headers for headers.
 Default data are used when url is empty.''')
-        info.config(state=tk.DISABLED, height=6)
-        info.pack(anchor="e", padx=5, pady=5)
+            info.config(state=tk.DISABLED, height=6)
+            info.pack(anchor="e", padx=5, pady=5)
+
+            def create():
+                load_from_file_button.destroy()
+                create_new_model_button.destroy()
+
+                url = url_entry.get()
+
+                train_row_number = train_row_number_entry.get()
+                test_row_number = test_row_number_entry.get()
+
+                if train_row_number == "":
+                    train_row_number = 50
+                else:
+                    train_row_number = int(train_row_number)
+
+                if test_row_number == "":
+                    # 25% of all data read
+                    test_row_number = int(0.33 * train_row_number)
+                else:
+                    test_row_number = int(test_row_number)
+
+                if url == "":
+                    url = "car.data"
+                    self.headers = [line.removesuffix("\n") for line in open("car.headers", mode='r')]
+                else:
+                    self.headers = re.findall(r'\w+', headers_entry.get())
+
+                for h in self.headers:
+                    if self.headers.count(h) != 1:
+                        raise ValueError("Columns must be unique")
+                data = pd.read_csv(url, header=None)
+
+                if len(data.columns) != len(self.headers):
+                    raise ValueError("Column count must be the same as number of attributes.")
+
+                column_rename = {i: self.headers[i] for i in data.columns.to_list()}
+                data.rename(columns=column_rename)
+
+                self.train_vectors = []
+                test_vectors = []
+                all_vectors = [list(v) for v in data.values]
+                random.shuffle(all_vectors)
+                all_vectors = all_vectors[:train_row_number + test_row_number]
+                for i in range(len(all_vectors)):
+                    if i < train_row_number:
+                        self.train_vectors.append(all_vectors[i])
+                    else:
+                        test_vectors.append(all_vectors[i])
+
+                self.model = Bayes(self.train_vectors)
+
+                test_results = self.model.test(test_vectors)
+                print("Test results:\n"
+                      f"\tcorrect: {test_results[0]}({int(test_results[1] * 100)}%)\n"
+                      "Confusion matrix:")
+
+                for k in test_results[2].keys():
+                    print(*[f" {v}" for v in test_results[2][k].values()], sep="\t |")
+                    print("---------" * len(test_results))
+
+                new_model_enter_window.destroy()
+
+                def enter_to_classify():
+                    vector_enter_window = tk.Toplevel(self)
+                    vector_enter_window.title("Vector enter")
+
+                    entry_frames = []
+                    for _h in self.headers[:-1]:
+                        frame = EntryFrame(vector_enter_window, label=_h)
+                        entry_frames.append(frame)
+                        frame.pack()
+
+                    def classify():
+                        vec = [ef.get() for ef in entry_frames]
+                        vector_enter_window.destroy()
+                        print(f"Vector: {vec}\nAnswer: {self.model.classify(vec)}")
+
+                    classify_button = tk.Button(vector_enter_window, text="Classify", command=classify)
+                    classify_button.pack(side="left")
+
+                def save_model():
+                    save_window = tk.Toplevel(self)
+                    save_window.title("Save")
+
+                    file_name_entry = EntryFrame(save_window, label="File name")
+                    file_name_entry.pack()
+
+                    def save():
+                        file_name = file_name_entry.get()
+                        if file_name == "":
+                            file_name = "model.txt"
+                        self.save(file_name)
+                        save_window.destroy()
+
+                    save_button = tk.Button(save_window, text="Save", command=save)
+                    save_button.pack(pady=5, padx=5)
+
+                self.geometry(f"{screen_width // 2}x{int(screen_height / 1.6)}")
+                self.classify_new_button = tk.Button(self, text="Classify new", command=enter_to_classify)
+                self.classify_new_button.pack(side="right", padx=5, pady=5)
+
+                self.save_button = tk.Button(self, text="Save", command=save_model)
+                self.save_button.pack(side="right", padx=5, pady=5)
+
+            create_button = tk.Button(new_model_enter_window, text="Create", command=create)
+            create_button.pack()
+
+        load_from_file_button.config(command=load_from_file)
+        load_from_file_button.pack(side="left", padx=20, pady=5)
+
+        create_new_model_button.config(command=create_new_model)
+        create_new_model_button.pack(side="right", pady=5, padx=20)
+        """
+        # ==============================================================================================================
+
+        data_enter_window = tk.Toplevel(self)
+        data_enter_window.title("Data enter")
+
+        _url_entry = EntryFrame(data_enter_window, label="URL:")
+        _url_entry.pack()
+
+        _headers_entry = EntryFrame(data_enter_window, label="Columns")
+        _headers_entry.pack()
+
+        _train_row_number_entry = EntryFrame(data_enter_window, label="Train row number")
+        _train_row_number_entry.pack()
+
+        _test_row_number_entry = EntryFrame(data_enter_window, label="Test row number")
+        _test_row_number_entry.pack()
+
+        _info = tk.Text(data_enter_window)
+        _info.insert(tk.END, '''Columns must be separated with punctuation character.
+Column count must be the same as number of attributes.
+Columns must be unique.
+First attribute is a decision attribute.
+Default data are car.data for url and lines from car.headers for headers.
+Default data are used when url is empty.''')
+        _info.config(state=tk.DISABLED, height=6)
+        _info.pack(anchor="e", padx=5, pady=5)
         self.headers = []
         self.data = pd.DataFrame()
 
@@ -198,9 +414,9 @@ Default data are used when url is empty.''')
             print("Not implemented yet")
 
         def load_data():
-            url = url_entry.get()
-            train_row_number = train_row_number_entry.get()
-            test_row_number = test_row_number_entry.get()
+            url = _url_entry.get()
+            train_row_number = _train_row_number_entry.get()
+            test_row_number = _test_row_number_entry.get()
 
             if train_row_number == "":
                 train_row_number = 50
@@ -217,7 +433,7 @@ Default data are used when url is empty.''')
                 url = "car.data"
                 self.headers = [line.removesuffix("\n") for line in open("car.headers", mode='r')]
             else:
-                self.headers = re.findall(r'\w+', headers_entry.get())
+                self.headers = re.findall(r'\w+', _headers_entry.get())
 
             # Not in else because anyone can change data in car files
             for h in self.headers:
@@ -229,7 +445,7 @@ Default data are used when url is empty.''')
                 raise ValueError("Column count must be the same as number of attributes.")
             else:
                 data_enter_window.destroy()
-                column_rename = {i: self.headers[i] for i in self.data.columns.to_list()}
+                _column_rename = {i: self.headers[i] for i in self.data.columns.to_list()}
 
                 train_vectors = []
                 test_vectors = []
@@ -254,7 +470,7 @@ Default data are used when url is empty.''')
                     print("---------"*len(test_results))
 
                 self.geometry(f"{screen_width // 2}x{int(screen_height / 1.6)}")
-                self.data = self.data.rename(columns=column_rename)
+                self.data = self.data.rename(columns=_column_rename)
 
                 self.show_on_table_button = tk.Button(self, text="Show table", command=show_on_table)
                 self.show_on_table_button.pack(side="left")
@@ -283,72 +499,9 @@ Default data are used when url is empty.''')
                 self.classify_new_button = tk.Button(self, text="Classify new", command=enter_to_classify)
                 self.classify_new_button.pack(side="right")
 
-                def open_retrain_window():
-                    retrain_window = tk.Toplevel(self)
-                    retrain_window.title("Retrain")
-                    nonlocal train_row_number_entry
-                    nonlocal test_row_number_entry
-                    nonlocal train_row_number
-                    nonlocal test_row_number
-
-                    train_row_number_entry = EntryFrame(retrain_window, label="New train row number")
-                    train_row_number_entry.pack()
-
-                    test_row_number_entry = EntryFrame(retrain_window, label="New test row number")
-                    test_row_number_entry.pack()
-
-                    def retrain():
-                        nonlocal train_row_number
-                        nonlocal test_row_number
-                        nonlocal train_vectors
-                        nonlocal test_vectors
-                        nonlocal all_vectors
-                        nonlocal test_results
-
-                        train_row_number = train_row_number_entry.get()
-                        test_row_number = test_row_number_entry.get()
-
-                        if train_row_number == "":
-                            train_row_number = 50
-                        else:
-                            train_row_number = int(train_row_number)
-
-                        if test_row_number == "":
-                            # 25% of all data read
-                            test_row_number = int(0.33 * train_row_number)
-                        else:
-                            test_row_number = int(test_row_number)
-
-                        train_vectors = []
-                        test_vectors = []
-                        all_vectors = [list(v) for v in self.data.values]
-                        random.shuffle(all_vectors)
-                        all_vectors = all_vectors[:train_row_number + test_row_number]
-                        for i in range(len(all_vectors)):
-                            if i < train_row_number:
-                                train_vectors.append(all_vectors[i])
-                            else:
-                                test_vectors.append(all_vectors[i])
-                        self.model = Bayes(train_vectors)
-                        test_results = self.model.test(test_vectors)
-                        print("Test results:\n"
-                              f"\tcorrect: {test_results[0]}({int(test_results[1] * 100)}%)\n"
-                              "Confusion matrix:")
-                        for _k in test_results[2].keys():
-                            print(*[f" {v}" for v in test_results[2][_k].values()], sep="\t |")
-                            print("---------" * len(test_results))
-
-                            retrain_window.destroy()
-
-                    retrain_button = tk.Button(retrain_window, text="Retrain", command=retrain)
-                    retrain_button.pack()
-
-                self.open_retrain_window_button = tk.Button(self, text="Retrain", command=open_retrain_window)
-                self.open_retrain_window_button.pack(side="right")
-
         load_button = tk.Button(data_enter_window, text="Load", command=load_data, width=20)
         load_button.pack(anchor='w', pady=10, padx=10)
-
+        """
         self.resizable(width=False, height=False)
         self.mainloop()
 
