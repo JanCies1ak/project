@@ -85,47 +85,55 @@ class Bayes:
         correct_percent = correct / len(test)
         return correct, correct_percent, confusion_matrix
 
-    def __repr__(self):
-        return f"Bayes({self.all_train_vectors})"
-
-    def save(self, file_name: str = "model.txt"):
-        file = open(file_name, 'w')
-        file.write(repr(self) + "\n")
-        file.close()
-
 
 class DBController:
 
     def connect(self) -> sqlite3.dbapi2.Connection:
         return sqlite3.connect(self.database)
 
-    def __init__(self, database: str, headers: list[str]):
+    def __init__(self, database: str):
         self.database = database
-        self.headers = headers
-
-        query = "CREATE TABLE IF NOT EXISTS model ( id INTEGER PRIMARY KEY"
-        for c in headers:
-            query += f",\n{c} TEXT"
-        query += ")"
+        query = "CREATE TABLE IF NOT EXISTS headers ( id INTEGER PRIMARY KEY," \
+                "table_name TEXT," \
+                "header_name TEXT)"
         connection = self.connect()
         connection.execute(query)
         connection.close()
 
-    def save(self, model: Bayes):
-        query = "INSERT INTO model ("
-        for h in self.headers[:-1]:
-            query += f"{h}, "
-        query += f"{self.headers[-1]}) VALUES ("
-        for i in range(len(self.headers) - 1):
+    def save(self, model: Bayes, headers: list, table_name):
+        query = f"DROP TABLE IF EXISTS '{table_name}'"
+        connection = self.connect()
+        connection.execute(query)
+        connection.close()
+        connection = self.connect()
+        query = "DELETE FROM headers WHERE table_name = ?"
+        connection.execute(query, [table_name])
+
+        query = f"CREATE TABLE '{table_name}' ( id INTEGER PRIMARY KEY"
+        for c in headers:
+            query += f", '{c}' TEXT"
+        query += " )"
+        connection.execute(query)
+
+        query = "INSERT INTO headers (table_name, header_name) VALUES (?, ?)"
+        for h in headers:
+            connection.execute(query, [table_name, h])
+
+        query = f"INSERT INTO '{table_name}' ("
+        for h in headers[:-1]:
+            query += f"'{h}', "
+        query += f"{headers[-1]}) VALUES ("
+        for i in range(len(headers) - 1):
             query += "?, "
         query += "?)"
-        connection = self.connect()
+
         for v in model.all_train_vectors:
             connection.execute(query, v)
+        connection.commit()
         connection.close()
 
-    def read(self) -> list[list[str]]:
-        query = "SELECT * FROM model"
+    def read_model(self, table_name: str) -> list[list[str]]:
+        query = f"SELECT * FROM '{table_name}'"
         connection = self.connect()
         res = connection.execute(query)
         vecs = res.fetchall()
@@ -133,6 +141,17 @@ class DBController:
         vectors = []
         for v in vecs:
             vectors.append(list(v[1:]))
+        return vectors
+
+    def read_headers(self, table_name: str) -> list[str]:
+        query = "SELECT header_name FROM headers WHERE table_name = ?"
+        connection = self.connect()
+        res = connection.execute(query, [table_name])
+        vecs = res.fetchall()
+        connection.close()
+        vectors = []
+        for v in vecs:
+            vectors.append(*v)
         return vectors
 
 
@@ -166,18 +185,11 @@ class EntryFrame(tk.Frame):
 
 class Root(tk.Tk):
 
-    def save(self, file_name: str = "model.txt"):
-        file = open(file_name, "w")
-        file.write(repr(self.model))
-        file.write("\n")
-        file.write(repr(self.headers))
-        file.write("\n")
-        file.close()
-
     def __init__(self):
         super().__init__()
         self.model = None
         self.headers = []
+        self.database_controller = DBController("model.db")
         self.title("Classificator")
         screen_width = get_monitors()[0].width
 
@@ -188,24 +200,23 @@ class Root(tk.Tk):
             load_window = tk.Toplevel(self)
             load_window.title("Load")
 
-            file_name_entry = EntryFrame(load_window, label="File name")
-            file_name_entry.pack()
+            save_name_entry = EntryFrame(load_window, label="Save name")
+            save_name_entry.pack()
 
             def load():
-                file_name = file_name_entry.get()
+                save_name = save_name_entry.get()
 
-                if file_name == "":
-                    file_name = "model.txt"
+                if save_name == "":
+                    save_name = "model"
 
-                try:
-                    file = open(file_name, 'r')
-                except FileNotFoundError:
-                    print("Fine not exist")
-                    load_window.destroy()
+                if re.compile("\\W").findall(save_name):
+                    print("Incorrect save name.")
+                    save_name_entry.entry.config(background="Red")
                     return
-                self.model = eval(file.readline())
+
+                self.model = Bayes(self.database_controller.read_model(save_name))
                 self.train_vectors = self.model.all_train_vectors
-                self.headers = eval(file.readline())
+                self.headers = self.database_controller.read_headers(save_name)
                 load_window.destroy()
                 load_from_file_button.destroy()
                 create_new_model_button.destroy()
@@ -309,6 +320,7 @@ Default data are used when url is empty.''')
             create_button.pack()
 
         def setup():
+
             def enter_to_classify():
                 vector_enter_window = tk.Toplevel(self)
                 vector_enter_window.title("Vector enter")
@@ -356,14 +368,18 @@ Default data are used when url is empty.''')
                 save_window = tk.Toplevel(self)
                 save_window.title("Save")
 
-                file_name_entry = EntryFrame(save_window, label="File name")
-                file_name_entry.pack()
+                save_name_entry = EntryFrame(save_window, label="Save name")
+                save_name_entry.pack()
 
                 def save():
-                    file_name = file_name_entry.get()
-                    if file_name == "":
-                        file_name = "model.txt"
-                    self.save(file_name)
+                    save_name = save_name_entry.get()
+                    if save_name == "":
+                        save_name = "model"
+                    if re.compile("\\W").findall(save_name):
+                        print("Incorrect save name.")
+                        save_name_entry.entry.config(background="Red")
+                        return
+                    self.database_controller.save(self.model, self.headers, save_name)
                     save_window.destroy()
 
                 save_button = tk.Button(save_window, text="Save", command=save)
